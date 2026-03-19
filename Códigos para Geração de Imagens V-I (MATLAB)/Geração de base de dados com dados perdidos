@@ -1,0 +1,942 @@
+%% Definição de parâmetros do sistema
+% Frequência e intervalo de amostragem
+
+
+
+Fs = 12800; %Frequência de amostragem do sinal
+Ts = 1/Fs;
+start_janela = 8705;%Instante inicial de tempo da janela a ser utilizada na análise
+end_janela = 9473; %Instante final de tempo da janela a ser utilizada na análise
+N_comp = 769; %Tamanho de amostras total do vetor/Número de fasores
+N_fpc = 50*((N_comp-1)/(end_janela-start_janela)); %Número de fasores por segundo
+N_ciclo = 256; %Número de amostras em um ciclo 
+kth = 7;  %Obter o sinal decomp1osto até sua k-ésima harmônica
+theta = (2*pi)/N_ciclo; % Ângulo da amostragem
+%Fs = 12800;
+
+% Parâmetros de ruído
+missing_prob = 0.3; % Quantidade de dados perdidos nos sinais
+
+phasors_IA = zeros(N_comp,kth);
+phasors_IB = zeros(N_comp,kth);
+phasors_IC = zeros(N_comp,kth);
+phasors_VA = zeros(N_comp,kth);
+phasors_VB = zeros(N_comp,kth);
+phasors_VC = zeros(N_comp,kth);
+%% Definição de evento para extração das relações V-I
+
+% Solicita o tipo de evento
+evento = input('Que tipo de evento ocorreu? :\n 1: Falta de baixa impedância\n 2: Falta de alta impedância\n 3: Chaveamento de banco de capacitores\n');
+
+if evento ~= 3
+    
+evento2 = input('O evento ocorreu entre barras?  :\n 1:sim \n 2:não \n');
+
+end 
+%% FBI: Estimação dos fasores harmônicos e extração das relações V-I
+
+if (evento == 1) && (evento2 ~= 1)
+    % Falta de baixa impedância
+    barra = input('Em qual barra ocorreu a falta? : ');
+    curto = input('Tipo de curto:\n 1: monofásico\n 2: bifásico\n 3: bifásico terra\n 4: trifásico\n'); 
+        
+    
+    % Define o caminho do diretório com base na barra e tipo de curto
+    switch curto
+        case 1
+            pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\LIF_Dados de tensão e corrente nas barras\\Barra %d\\Dados\\%d.LIF_PG_B%d_', barra, curto, barra);
+        case 2
+            pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\LIF_Dados de tensão e corrente nas barras\\Barra %d\\Dados\\%d.LIF_PP_B%d_', barra, curto, barra);
+        case 3
+            pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\LIF_Dados de tensão e corrente nas barras\\Barra %d\\Dados\\%d.LIF_PPG_B%d_', barra, curto, barra);
+        case 4
+            pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\LIF_Dados de tensão e corrente nas barras\\Barra %d\\Dados\\%d.LIF_PPP_B%d_', barra, curto, barra);
+        otherwise
+            error('Opção de tipo de curto inválida.');
+    end
+
+    
+    % Determina as fases da barra
+    v1 = (barra - 1) * 3 + 4;
+    v2 = v1 + 1;
+    v3 = v1 + 2;
+    
+    % Itera sobre todos os casos na pasta
+    for caso = 1:30 % Ajuste o número conforme necessário
+        switch curto
+            case 1
+        nome_arquivo = sprintf('%s\\LIF_PG_B%d_%d.mat', pasta, barra, caso);
+            case 2
+        nome_arquivo = sprintf('%s\\LIF_PP_B%d_%d.mat', pasta, barra, caso);
+            case 3
+        nome_arquivo = sprintf('%s\\LIF_PPG_B%d_%d.mat', pasta, barra, caso); 
+            case 4
+        nome_arquivo = sprintf('%s\\LIF_PPP_B%d_%d.mat', pasta, barra, caso);    
+        end
+        if exist(nome_arquivo, 'file')
+            load(nome_arquivo);
+            
+            
+            % Processamento e plotagem dos dados
+            V = simData(:, 1:36);
+            I = simData(:, 37:72);
+            
+                  % EXTRAIR SINAIS LIMPOS
+        I_faseA_clean = I(start_janela:end_janela, v1);
+        I_faseB_clean = I(start_janela:end_janela, v2);
+        I_faseC_clean = I(start_janela:end_janela, v3);
+
+        V_faseA_clean = V(start_janela:end_janela, v1) * 0.001;
+        V_faseB_clean = V(start_janela:end_janela, v2) * 0.001;
+        V_faseC_clean = V(start_janela:end_janela, v3) * 0.001;
+            
+            % =============================================
+            % APLICAR RUÍDO GAUSSIANO CORRELACIONADO
+            % =============================================
+            [I_faseA, V_faseA] = adicionar_dados_faltantes(I_faseA_clean, V_faseA_clean, missing_prob);
+            [I_faseB, V_faseB] = adicionar_dados_faltantes(I_faseB_clean, V_faseB_clean, missing_prob);
+            [I_faseC, V_faseC] = adicionar_dados_faltantes(I_faseC_clean, V_faseC_clean, missing_prob);
+            
+            
+            % Plotagem e salvamento
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['I_fase' figuras{fase}]), eval(['V_fase' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('FBI - Barra %d: Relação VI - Fase %s - Caso %d', barra, figuras{fase}, caso));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto-1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\FBI\\%d\\Barra%d_Caso%d_Fase%s.jpg', N_fpc, missing_prob*100, curto_I, barra, caso, figuras{fase});
+                
+                folder = fileparts(caminho_imagem);
+if ~exist(folder, 'dir')
+    mkdir(folder);
+end
+                
+                 % Salvar a imagem com resolução de 300 DPI     
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+            
+        else
+            fprintf('Arquivo não encontrado: %s\n', nome_arquivo);
+            break;
+        end
+        %Nesta seção, será feita a extração das componentes harmônicas das
+%correntes e tensões 
+%Para isto, será necessário estimar o fasor de cada ciclo pelo metodo
+%recursivo
+
+for m = 1:kth
+Xkc_IA = 0;
+Xks_IA = 0;
+Xkc_VA = 0;
+Xks_VA = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase A para corrente e tensão, respectivamente
+Xkc_IB = 0;
+Xks_IB = 0;
+Xkc_VB = 0;
+Xks_VB = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase B para corrente e tensão, respectivamente
+Xkc_IC = 0;
+Xks_IC = 0;
+Xkc_VC = 0;
+Xks_VC = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase C para corrente e tensão, respectivamente
+for n = 1:N_ciclo
+   
+    Xkc_IA = Xkc_IA + I_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IA = Xks_IA + I_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária 
+    phasors_IA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IA,-(sqrt(2)/N_ciclo)*Xks_IA); %%estimação do fasor inicial
+    
+    Xkc_IB = Xkc_IB + I_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IB = Xks_IB + I_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IB,-(sqrt(2)/N_ciclo)*Xks_IB); %%estimação do fasor inicial
+    
+    Xkc_IC = Xkc_IC + I_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IC = Xks_IC + I_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IC,-(sqrt(2)/N_ciclo)*Xks_IC); %%estimação do fasor inicial
+    
+    Xkc_VA = Xkc_VA + V_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VA = Xks_VA + V_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VA,-(sqrt(2)/N_ciclo)*Xks_VA); %%estimação do fasor inicial
+    
+    Xkc_VB = Xkc_VB + V_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VB = Xks_VB + V_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VB,-(sqrt(2)/N_ciclo)*Xks_VB); %%estimação do fasor inicial
+    
+    Xkc_VC = Xkc_VC + V_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VC = Xks_VC + V_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VC,-(sqrt(2)/N_ciclo)*Xks_VC); %%estimação do fasor inicial
+    
+end
+ % Cálculo recursivo do fasor
+    for r = 1:(N_comp-N_ciclo-1)
+        phasors_IA(r+1,m) = phasors_IA(r,m) + (sqrt(2)/N_ciclo)*(I_faseA(N_ciclo+r)-I_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IB(r+1,m) = phasors_IB(r,m) + (sqrt(2)/N_ciclo)*(I_faseB(N_ciclo+r)-I_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IC(r+1,m) = phasors_IC(r,m) + (sqrt(2)/N_ciclo)*(I_faseC(N_ciclo+r)-I_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VA(r+1,m) = phasors_VA(r,m) + (sqrt(2)/N_ciclo)*(V_faseA(N_ciclo+r)-V_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VB(r+1,m) = phasors_VB(r,m) + (sqrt(2)/N_ciclo)*(V_faseB(N_ciclo+r)-V_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VC(r+1,m) = phasors_VC(r,m) + (sqrt(2)/N_ciclo)*(V_faseC(N_ciclo+r)-V_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+    end
+    mod_phasors_IA = abs(phasors_IA(:,m));
+    mod_phasors_IB = abs(phasors_IB(:,m));
+    mod_phasors_IC = abs(phasors_IC(:,m));
+    mod_phasors_VA = abs(phasors_VA(:,m));
+    mod_phasors_VB = abs(phasors_VB(:,m));
+    mod_phasors_VC = abs(phasors_VC(:,m));
+    
+         % Plotagem e salvamento das componentes harmônicas
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['mod_phasors_I' figuras{fase}]), eval(['mod_phasors_V' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('FBI - Barra %d: Relação VI - Fase %s - Caso %d - %d° harmônica', barra, figuras{fase}, caso, m));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto-1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\FBI\\%d\\Barra%d_Caso%d_Fase%s_%d.jpg', N_fpc, missing_prob*100, curto_I, barra, caso, figuras{fase}, m);
+                
+                
+                 % Salvar a imagem com resolução de 300 DPI     
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+
+end
+          
+
+        
+        
+    end
+    
+elseif (evento == 1) && (evento2 == 1)
+    
+    % Falta de baixa impedância entre barras
+    barra = input('Entre quais barras ocorreu a falta? :\n 1: Barras 1 e 2 \n 5: Barras 5 e 6 \n 10: Barras 10 e 11\n ');
+    curto = input('Tipo de curto:\n 1: monofásico\n 2: bifásico\n 3: bifásico terra\n 4: trifásico\n');
+    barra2 = barra+1;
+    
+       switch curto
+        case 1
+            pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\LIF_Dados de tensão e corrente nas barras\\Entre as barras %d e %d\\Dados\\%d.LIF_PG_B%d_%d', barra, barra2, curto, barra, barra2);
+        case 2
+            pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\LIF_Dados de tensão e corrente nas barras\\Entre as barras %d e %d\\Dados\\%d.LIF_PP_B%d_%d', barra, barra2, curto, barra, barra2);
+        case 3
+            pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\LIF_Dados de tensão e corrente nas barras\\Entre as barras %d e %d\\Dados\\%d.LIF_PPG_B%d_%d', barra, barra2, curto, barra, barra2);
+        case 4
+            pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\LIF_Dados de tensão e corrente nas barras\\Entre as barras %d e %d\\Dados\\%d.LIF_PPP_B%d_%d', barra, barra2, curto, barra, barra2);
+        otherwise
+            error('Opção de tipo de curto inválida.');
+       end
+       
+       % Determina as fases da barra
+    v1 = (barra - 1) * 3 + 4;
+    v2 = v1 + 1;
+    v3 = v1 + 2;
+    
+    % Itera sobre todos os casos na pasta
+    for caso = 1:30 % Ajuste o número conforme necessário
+        switch curto
+            case 1
+        nome_arquivo = sprintf('%s\\LIF_PG_B%d_%d_%d.mat', pasta, barra, barra2, caso);
+            case 2
+        nome_arquivo = sprintf('%s\\LIF_PP_B%d_%d_%d.mat', pasta, barra, barra2, caso);
+            case 3
+        nome_arquivo = sprintf('%s\\LIF_PPG_B%d_%d_%d.mat', pasta, barra, barra2, caso); 
+            case 4
+        nome_arquivo = sprintf('%s\\LIF_PPP_B%d_%d_%d.mat', pasta, barra, barra2, caso);    
+        end
+        if exist(nome_arquivo, 'file')
+            load(nome_arquivo);
+         
+       
+        % Processamento e plotagem dos dados
+            V = simData(:, 1:36);
+            I = simData(:, 37:72);
+            
+                  % EXTRAIR SINAIS LIMPOS
+            I_faseA_clean = I(start_janela:end_janela, v1);
+            I_faseB_clean = I(start_janela:end_janela, v2);
+            I_faseC_clean = I(start_janela:end_janela, v3);
+            
+            V_faseA_clean = V(start_janela:end_janela, v1) * 0.001;
+            V_faseB_clean = V(start_janela:end_janela, v2) * 0.001;
+            V_faseC_clean = V(start_janela:end_janela, v3) * 0.001;
+            
+            % =============================================
+            % APLICAR RUÍDO GAUSSIANO CORRELACIONADO
+            % =============================================
+            [I_faseA, V_faseA] = adicionar_dados_faltantes(I_faseA_clean, V_faseA_clean, missing_prob);
+            [I_faseB, V_faseB] = adicionar_dados_faltantes(I_faseB_clean, V_faseB_clean, missing_prob);
+            [I_faseC, V_faseC] = adicionar_dados_faltantes(I_faseC_clean, V_faseC_clean, missing_prob);
+       
+             % Plotagem e salvamento
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['I_fase' figuras{fase}]), eval(['V_fase' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('FBI - Entre barra %d e %d: Relação VI - Fase %s - Caso %d', barra, barra2, figuras{fase}, caso));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto-1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\FBI\\%d\\Barra%d_%d_Caso%d_Fase%s.jpg', N_fpc, missing_prob*100, curto_I, barra, barra2, caso, figuras{fase});
+                
+                folder = fileparts(caminho_imagem);
+if ~exist(folder, 'dir')
+    mkdir(folder);
+end
+                
+                 % Salvar a imagem com resolução de 300 DPI     
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+            
+        else
+            fprintf('Arquivo não encontrado: %s\n', nome_arquivo);
+            break;
+        end
+        
+for m = 1:kth
+Xkc_IA = 0;
+Xks_IA = 0;
+Xkc_VA = 0;
+Xks_VA = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase A para corrente e tensão, respectivamente
+Xkc_IB = 0;
+Xks_IB = 0;
+Xkc_VB = 0;
+Xks_VB = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase B para corrente e tensão, respectivamente
+Xkc_IC = 0;
+Xks_IC = 0;
+Xkc_VC = 0;
+Xks_VC = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase C para corrente e tensão, respectivamente
+for n = 1:N_ciclo
+   
+    Xkc_IA = Xkc_IA + I_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IA = Xks_IA + I_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária 
+    phasors_IA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IA,-(sqrt(2)/N_ciclo)*Xks_IA); %%estimação do fasor inicial
+    
+    Xkc_IB = Xkc_IB + I_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IB = Xks_IB + I_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IB,-(sqrt(2)/N_ciclo)*Xks_IB); %%estimação do fasor inicial
+    
+    Xkc_IC = Xkc_IC + I_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IC = Xks_IC + I_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IC,-(sqrt(2)/N_ciclo)*Xks_IC); %%estimação do fasor inicial
+    
+    Xkc_VA = Xkc_VA + V_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VA = Xks_VA + V_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VA,-(sqrt(2)/N_ciclo)*Xks_VA); %%estimação do fasor inicial
+    
+    Xkc_VB = Xkc_VB + V_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VB = Xks_VB + V_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VB,-(sqrt(2)/N_ciclo)*Xks_VB); %%estimação do fasor inicial
+    
+    Xkc_VC = Xkc_VC + V_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VC = Xks_VC + V_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VC,-(sqrt(2)/N_ciclo)*Xks_VC); %%estimação do fasor inicial
+    
+end
+ % Cálculo recursivo do fasor
+    for r = 1:(N_comp-N_ciclo-1)
+        phasors_IA(r+1,m) = phasors_IA(r,m) + (sqrt(2)/N_ciclo)*(I_faseA(N_ciclo+r)-I_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IB(r+1,m) = phasors_IB(r,m) + (sqrt(2)/N_ciclo)*(I_faseB(N_ciclo+r)-I_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IC(r+1,m) = phasors_IC(r,m) + (sqrt(2)/N_ciclo)*(I_faseC(N_ciclo+r)-I_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VA(r+1,m) = phasors_VA(r,m) + (sqrt(2)/N_ciclo)*(V_faseA(N_ciclo+r)-V_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VB(r+1,m) = phasors_VB(r,m) + (sqrt(2)/N_ciclo)*(V_faseB(N_ciclo+r)-V_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VC(r+1,m) = phasors_VC(r,m) + (sqrt(2)/N_ciclo)*(V_faseC(N_ciclo+r)-V_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+    end
+       
+    mod_phasors_IA = abs(phasors_IA(:,m));
+    mod_phasors_IB = abs(phasors_IB(:,m));
+    mod_phasors_IC = abs(phasors_IC(:,m));
+    mod_phasors_VA = abs(phasors_VA(:,m));
+    mod_phasors_VB = abs(phasors_VB(:,m));
+    mod_phasors_VC = abs(phasors_VC(:,m));
+    
+         % Plotagem e salvamento das componentes harmônicas
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['mod_phasors_I' figuras{fase}]), eval(['mod_phasors_V' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('FBI - Entre barra %d e %d: Relação VI - Fase %s - Caso %d - %d° harmônica', barra, barra2, figuras{fase}, caso, m));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto-1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\FBI\\%d\\Barra%d_%d_Caso%d_Fase%s_%d.jpg', N_fpc, missing_prob*100, curto_I, barra, barra2, caso, figuras{fase}, m);
+                
+                
+                 % Salvar a imagem com resolução de 300 DPI     
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+        
+end
+    end
+
+end
+
+%% FAI: Estimação dos fasores harmônicos e extração das relações V-I
+if (evento == 2) && (evento2 ~= 1)
+   %Falta de Alta Impedância
+    barra = input('Em qual barra ocorreu a falta? :\n 1: Barra 1\n 2: Barra 2\n 5: Barra 5\n 6: Barra 6\n 10: Barra 10\n 11: Barra 11\n');
+    curto = input('Tipo de curto:\n 1: monofásico\n 2: bifásico\n 3: bifásico terra\n 4: trifásico\n');
+  %nÃO PRECISA DE SWITCH POR ENQUANTO POIS SÓ TEM FALTA MONOFÁSICA
+    
+    pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\HIF_Dados de tensão e corrente nas barras\\Barra %d\\Dados\\%d.HIF_PG_B%d_\\', barra, curto, barra);
+    
+     % Determina as fases da barra
+    v1 = (barra - 1) * 3 + 4;
+    v2 = v1 + 1;
+    v3 = v1 + 2;
+    
+    % Itera sobre todos os casos na pasta
+    for caso = 1:30 % Ajuste o número conforme necessário
+        
+         nome_arquivo = sprintf('%s\\HIF_PG_B%d_%d.mat', pasta, barra, caso);
+         
+        
+        if exist(nome_arquivo, 'file')
+            load(nome_arquivo);
+            
+            % Processamento e plotagem dos dados
+            V = simData(:, 1:36);
+            I = simData(:, 37:72);
+            
+                  % EXTRAIR SINAIS LIMPOS
+            I_faseA_clean = I(start_janela:end_janela, v1);
+            I_faseB_clean = I(start_janela:end_janela, v2);
+            I_faseC_clean = I(start_janela:end_janela, v3);
+            
+            V_faseA_clean = V(start_janela:end_janela, v1) * 0.001;
+            V_faseB_clean = V(start_janela:end_janela, v2) * 0.001;
+            V_faseC_clean = V(start_janela:end_janela, v3) * 0.001;
+            
+            % =============================================
+            % APLICAR RUÍDO GAUSSIANO CORRELACIONADO
+            % =============================================
+            [I_faseA, V_faseA] = adicionar_dados_faltantes(I_faseA_clean, V_faseA_clean, missing_prob);
+            [I_faseB, V_faseB] = adicionar_dados_faltantes(I_faseB_clean, V_faseB_clean, missing_prob);
+            [I_faseC, V_faseC] = adicionar_dados_faltantes(I_faseC_clean, V_faseC_clean, missing_prob);
+            
+            % Plotagem e salvamento
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['I_fase' figuras{fase}]), eval(['V_fase' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('FAI - Barra %d: Relação VI - Fase %s - Caso %d', barra, figuras{fase}, caso));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto - 1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\FAI\\%d\\Barra%d_Caso%d_Fase%s.jpg', N_fpc, missing_prob*100, curto_I, barra, caso, figuras{fase});
+                 % Salvar a imagem com resolução de 300 DPI    
+                 
+                                           folder = fileparts(caminho_imagem);
+if ~exist(folder, 'dir')
+    mkdir(folder);
+end
+                 
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+            
+        else
+            fprintf('Arquivo não encontrado: %s\n', nome_arquivo);
+        end
+        
+               %Nesta seção, será feita a extração das componentes harmônicas das
+%correntes e tensões 
+%Para isto, será necessário estimar o fasor de cada ciclo pelo metodo
+%recursivo
+
+for m = 1:kth
+Xkc_IA = 0;
+Xks_IA = 0;
+Xkc_VA = 0;
+Xks_VA = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase A para corrente e tensão, respectivamente
+Xkc_IB = 0;
+Xks_IB = 0;
+Xkc_VB = 0;
+Xks_VB = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase B para corrente e tensão, respectivamente
+Xkc_IC = 0;
+Xks_IC = 0;
+Xkc_VC = 0;
+Xks_VC = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase C para corrente e tensão, respectivamente
+for n = 1:N_ciclo
+   
+    Xkc_IA = Xkc_IA + I_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IA = Xks_IA + I_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária 
+    phasors_IA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IA,-(sqrt(2)/N_ciclo)*Xks_IA); %%estimação do fasor inicial
+    
+    Xkc_IB = Xkc_IB + I_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IB = Xks_IB + I_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IB,-(sqrt(2)/N_ciclo)*Xks_IB); %%estimação do fasor inicial
+    
+    Xkc_IC = Xkc_IC + I_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IC = Xks_IC + I_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IC,-(sqrt(2)/N_ciclo)*Xks_IC); %%estimação do fasor inicial
+    
+    Xkc_VA = Xkc_VA + V_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VA = Xks_VA + V_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VA,-(sqrt(2)/N_ciclo)*Xks_VA); %%estimação do fasor inicial
+    
+    Xkc_VB = Xkc_VB + V_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VB = Xks_VB + V_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VB,-(sqrt(2)/N_ciclo)*Xks_VB); %%estimação do fasor inicial
+    
+    Xkc_VC = Xkc_VC + V_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VC = Xks_VC + V_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VC,-(sqrt(2)/N_ciclo)*Xks_VC); %%estimação do fasor inicial
+    
+end
+ % Cálculo recursivo do fasor
+    for r = 1:(N_comp-N_ciclo-1)
+        phasors_IA(r+1,m) = phasors_IA(r,m) + (sqrt(2)/N_ciclo)*(I_faseA(N_ciclo+r)-I_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IB(r+1,m) = phasors_IB(r,m) + (sqrt(2)/N_ciclo)*(I_faseB(N_ciclo+r)-I_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IC(r+1,m) = phasors_IC(r,m) + (sqrt(2)/N_ciclo)*(I_faseC(N_ciclo+r)-I_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VA(r+1,m) = phasors_VA(r,m) + (sqrt(2)/N_ciclo)*(V_faseA(N_ciclo+r)-V_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VB(r+1,m) = phasors_VB(r,m) + (sqrt(2)/N_ciclo)*(V_faseB(N_ciclo+r)-V_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VC(r+1,m) = phasors_VC(r,m) + (sqrt(2)/N_ciclo)*(V_faseC(N_ciclo+r)-V_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+    end
+    mod_phasors_IA = abs(phasors_IA(:,m));
+    mod_phasors_IB = abs(phasors_IB(:,m));
+    mod_phasors_IC = abs(phasors_IC(:,m));
+    mod_phasors_VA = abs(phasors_VA(:,m));
+    mod_phasors_VB = abs(phasors_VB(:,m));
+    mod_phasors_VC = abs(phasors_VC(:,m));
+    
+         % Plotagem e salvamento das componentes harmônicas
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['mod_phasors_I' figuras{fase}]), eval(['mod_phasors_V' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('FAI - Barra %d: Relação VI - Fase %s - Caso %d - %d° harmônica', barra, figuras{fase}, caso, m));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto - 1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\FAI\\%d\\Barra%d_Caso%d_Fase%s_%d.jpg', N_fpc, missing_prob*100, curto_I, barra, caso, figuras{fase}, m);
+                 % Salvar a imagem com resolução de 300 DPI     
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+
+end
+        
+    end
+    
+elseif (evento == 2) && (evento2 == 1)
+    barra = input('Entre quais barras ocorreu a falta? :\n 1: Barras 1 e 2 \n 5: Barras 5 e 6 \n 10: Barras 10 e 11\n ');
+    curto = input('Tipo de curto:\n 1: monofásico\n 2: bifásico\n 3: bifásico terra\n 4: trifásico\n');
+    barra2 = barra+1;
+    
+    
+     %nÃO PRECISA DE SWITCH POR ENQUANTO POIS SÓ TEM FALTA MONOFÁSICA
+    
+    pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\HIF_Dados de tensão e corrente nas barras\\Entre as barras %d e %d\\Dados\\%d.HIF_PG_B%d_%d\\', barra, barra2, curto, barra, barra2);
+    
+     % Determina as fases da barra
+    v1 = (barra - 1) * 3 + 4;
+    v2 = v1 + 1;
+    v3 = v1 + 2;
+    
+    % Itera sobre todos os casos na pasta
+    for caso = 1:30 % Ajuste o número conforme necessário
+        
+         nome_arquivo = sprintf('%s\\HIF_PG_B%d_%d_%d.mat', pasta, barra, barra2, caso);
+         
+        
+        if exist(nome_arquivo, 'file')
+            load(nome_arquivo);
+            
+            % Processamento e plotagem dos dados
+            V = simData(:, 1:36);
+            I = simData(:, 37:72);
+            
+                  % EXTRAIR SINAIS LIMPOS
+            I_faseA_clean = I(start_janela:end_janela, v1);
+            I_faseB_clean = I(start_janela:end_janela, v2);
+            I_faseC_clean = I(start_janela:end_janela, v3);
+            
+            V_faseA_clean = V(start_janela:end_janela, v1) * 0.001;
+            V_faseB_clean = V(start_janela:end_janela, v2) * 0.001;
+            V_faseC_clean = V(start_janela:end_janela, v3) * 0.001;
+            
+            % =============================================
+            % APLICAR RUÍDO GAUSSIANO CORRELACIONADO
+            % =============================================
+            [I_faseA, V_faseA] = adicionar_dados_faltantes(I_faseA_clean, V_faseA_clean, missing_prob);
+            [I_faseB, V_faseB] = adicionar_dados_faltantes(I_faseB_clean, V_faseB_clean, missing_prob);
+            [I_faseC, V_faseC] = adicionar_dados_faltantes(I_faseC_clean, V_faseC_clean, missing_prob);
+            
+            % Plotagem e salvamento
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['I_fase' figuras{fase}]), eval(['V_fase' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('FAI - Entre barra %d e %d: Relação VI - Fase %s - Caso %d', barra, barra2, figuras{fase}, caso));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto - 1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\FAI\\%d\\Barra%d_%d_Caso%d_Fase%s.jpg', N_fpc, missing_prob*100, curto_I, barra, barra2, caso, figuras{fase});
+                 % Salvar a imagem com resolução de 300 DPI    
+                 
+                                           folder = fileparts(caminho_imagem);
+if ~exist(folder, 'dir')
+    mkdir(folder);
+end
+                 
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+            
+        else
+            fprintf('Arquivo não encontrado: %s\n', nome_arquivo);
+        end
+        
+               %Nesta seção, será feita a extração das componentes harmônicas das
+%correntes e tensões 
+%Para isto, será necessário estimar o fasor de cada ciclo pelo metodo
+%recursivo
+
+for m = 1:kth
+Xkc_IA = 0;
+Xks_IA = 0;
+Xkc_VA = 0;
+Xks_VA = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase A para corrente e tensão, respectivamente
+Xkc_IB = 0;
+Xks_IB = 0;
+Xkc_VB = 0;
+Xks_VB = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase B para corrente e tensão, respectivamente
+Xkc_IC = 0;
+Xks_IC = 0;
+Xkc_VC = 0;
+Xks_VC = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase C para corrente e tensão, respectivamente
+for n = 1:N_ciclo
+   
+    Xkc_IA = Xkc_IA + I_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IA = Xks_IA + I_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária 
+    phasors_IA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IA,-(sqrt(2)/N_ciclo)*Xks_IA); %%estimação do fasor inicial
+    
+    Xkc_IB = Xkc_IB + I_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IB = Xks_IB + I_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IB,-(sqrt(2)/N_ciclo)*Xks_IB); %%estimação do fasor inicial
+    
+    Xkc_IC = Xkc_IC + I_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IC = Xks_IC + I_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IC,-(sqrt(2)/N_ciclo)*Xks_IC); %%estimação do fasor inicial
+    
+    Xkc_VA = Xkc_VA + V_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VA = Xks_VA + V_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VA,-(sqrt(2)/N_ciclo)*Xks_VA); %%estimação do fasor inicial
+    
+    Xkc_VB = Xkc_VB + V_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VB = Xks_VB + V_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VB,-(sqrt(2)/N_ciclo)*Xks_VB); %%estimação do fasor inicial
+    
+    Xkc_VC = Xkc_VC + V_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VC = Xks_VC + V_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VC,-(sqrt(2)/N_ciclo)*Xks_VC); %%estimação do fasor inicial
+    
+end
+ % Cálculo recursivo do fasor
+    for r = 1:(N_comp-N_ciclo-1)
+        phasors_IA(r+1,m) = phasors_IA(r,m) + (sqrt(2)/N_ciclo)*(I_faseA(N_ciclo+r)-I_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IB(r+1,m) = phasors_IB(r,m) + (sqrt(2)/N_ciclo)*(I_faseB(N_ciclo+r)-I_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IC(r+1,m) = phasors_IC(r,m) + (sqrt(2)/N_ciclo)*(I_faseC(N_ciclo+r)-I_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VA(r+1,m) = phasors_VA(r,m) + (sqrt(2)/N_ciclo)*(V_faseA(N_ciclo+r)-V_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VB(r+1,m) = phasors_VB(r,m) + (sqrt(2)/N_ciclo)*(V_faseB(N_ciclo+r)-V_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VC(r+1,m) = phasors_VC(r,m) + (sqrt(2)/N_ciclo)*(V_faseC(N_ciclo+r)-V_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+    end
+    mod_phasors_IA = abs(phasors_IA(:,m));
+    mod_phasors_IB = abs(phasors_IB(:,m));
+    mod_phasors_IC = abs(phasors_IC(:,m));
+    mod_phasors_VA = abs(phasors_VA(:,m));
+    mod_phasors_VB = abs(phasors_VB(:,m));
+    mod_phasors_VC = abs(phasors_VC(:,m));
+    
+         % Plotagem e salvamento das componentes harmônicas
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['mod_phasors_I' figuras{fase}]), eval(['mod_phasors_V' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('FAI - Entre barra %d e %d: Relação VI - Fase %s - Caso %d - %d° harmônica', barra, barra2, figuras{fase}, caso, m));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto - 1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\FAI\\%d\\Barra%d_%d_Caso%d_Fase%s_%d.jpg', N_fpc, missing_prob*100, curto_I, barra, barra2, caso, figuras{fase}, m);
+                 % Salvar a imagem com resolução de 300 DPI     
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+
+end
+        
+    end
+    
+end
+    %% CBC: Estimação dos fasores harmônicos e extração das relações V-I
+    
+    if evento == 3
+        curto = 4;
+        %Chaveamento de banco de capacitores
+       barra = input('Em qual barra ocorreu o chaveamento? : ');
+       
+       if barra ~= 1 && barra ~= 6 && barra ~= 11 
+          error('Opção de tipo de curto inválida.'); 
+       end
+       
+       
+       pasta = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Dados\\CBC_Dados de tensão e corrente nas barras\\CPB_B%d_\\', barra);
+       
+       
+       % Determina as fases da barra
+    v1 = (barra - 1) * 3 + 4;
+    v2 = v1 + 1;
+    v3 = v1 + 2;
+    
+    for caso = 1:90
+        
+        nome_arquivo = sprintf('%s\\CPB_B%d_%d.mat', pasta, barra, caso);
+        
+        if exist(nome_arquivo, 'file')
+            load(nome_arquivo);
+            
+            % Processamento e plotagem dos dados
+            V = simData(:, 1:36);
+            I = simData(:, 37:72);
+            
+                  % EXTRAIR SINAIS LIMPOS
+            I_faseA_clean = I(start_janela:end_janela, v1);
+            I_faseB_clean = I(start_janela:end_janela, v2);
+            I_faseC_clean = I(start_janela:end_janela, v3);
+            
+            V_faseA_clean = V(start_janela:end_janela, v1) * 0.001;
+            V_faseB_clean = V(start_janela:end_janela, v2) * 0.001;
+            V_faseC_clean = V(start_janela:end_janela, v3) * 0.001;
+            
+            % =============================================
+            % APLICAR RUÍDO GAUSSIANO CORRELACIONADO
+            % =============================================
+            [I_faseA, V_faseA] = adicionar_dados_faltantes(I_faseA_clean, V_faseA_clean, missing_prob);
+            [I_faseB, V_faseB] = adicionar_dados_faltantes(I_faseB_clean, V_faseB_clean, missing_prob);
+            [I_faseC, V_faseC] = adicionar_dados_faltantes(I_faseC_clean, V_faseC_clean, missing_prob);
+            
+            % Plotagem e salvamento
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['I_fase' figuras{fase}]), eval(['V_fase' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('CBC - Barra %d: Relação VI - Fase %s - Caso %d', barra, figuras{fase}, caso));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto - 1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\CBC\\%d\\Barra%d_Caso%d_Fase%s.jpg', N_fpc, missing_prob*100, curto_I, barra, caso, figuras{fase});
+                 % Salvar a imagem com resolução de 300 DPI    
+                 
+                                                            folder = fileparts(caminho_imagem);
+if ~exist(folder, 'dir')
+    mkdir(folder);
+end
+                 
+                 
+                 
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+            
+        else
+            fprintf('Arquivo não encontrado: %s\n', nome_arquivo);
+        end
+    
+                       %Nesta seção, será feita a extração das componentes harmônicas das
+%correntes e tensões 
+%Para isto, será necessário estimar o fasor de cada ciclo pelo metodo
+%recursivo
+
+for m = 1:kth
+Xkc_IA = 0;
+Xks_IA = 0;
+Xkc_VA = 0;
+Xks_VA = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase A para corrente e tensão, respectivamente
+Xkc_IB = 0;
+Xks_IB = 0;
+Xkc_VB = 0;
+Xks_VB = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase B para corrente e tensão, respectivamente
+Xkc_IC = 0;
+Xks_IC = 0;
+Xkc_VC = 0;
+Xks_VC = 0;
+% ^^^^ Coeficientes Xkc e Xks da fase C para corrente e tensão, respectivamente
+for n = 1:N_ciclo
+   
+    Xkc_IA = Xkc_IA + I_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IA = Xks_IA + I_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária 
+    phasors_IA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IA,-(sqrt(2)/N_ciclo)*Xks_IA); %%estimação do fasor inicial
+    
+    Xkc_IB = Xkc_IB + I_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IB = Xks_IB + I_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IB,-(sqrt(2)/N_ciclo)*Xks_IB); %%estimação do fasor inicial
+    
+    Xkc_IC = Xkc_IC + I_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_IC = Xks_IC + I_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_IC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_IC,-(sqrt(2)/N_ciclo)*Xks_IC); %%estimação do fasor inicial
+    
+    Xkc_VA = Xkc_VA + V_faseA(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VA = Xks_VA + V_faseA(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VA(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VA,-(sqrt(2)/N_ciclo)*Xks_VA); %%estimação do fasor inicial
+    
+    Xkc_VB = Xkc_VB + V_faseB(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VB = Xks_VB + V_faseB(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VB(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VB,-(sqrt(2)/N_ciclo)*Xks_VB); %%estimação do fasor inicial
+    
+    Xkc_VC = Xkc_VC + V_faseC(n)*cos(m*(n-1)*theta); %Componente real do fasor
+    Xks_VC = Xks_VC + V_faseC(n)*sin(m*(n-1)*theta); %Componente imaginária ==
+    phasors_VC(1,m) = complex((sqrt(2)/N_ciclo)*Xkc_VC,-(sqrt(2)/N_ciclo)*Xks_VC); %%estimação do fasor inicial
+    
+end
+ % Cálculo recursivo do fasor
+    for r = 1:(N_comp-N_ciclo-1)
+        phasors_IA(r+1,m) = phasors_IA(r,m) + (sqrt(2)/N_ciclo)*(I_faseA(N_ciclo+r)-I_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IB(r+1,m) = phasors_IB(r,m) + (sqrt(2)/N_ciclo)*(I_faseB(N_ciclo+r)-I_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_IC(r+1,m) = phasors_IC(r,m) + (sqrt(2)/N_ciclo)*(I_faseC(N_ciclo+r)-I_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VA(r+1,m) = phasors_VA(r,m) + (sqrt(2)/N_ciclo)*(V_faseA(N_ciclo+r)-V_faseA(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VB(r+1,m) = phasors_VB(r,m) + (sqrt(2)/N_ciclo)*(V_faseB(N_ciclo+r)-V_faseB(r))*exp(-r*m*2*pi*1i/N_ciclo);
+        
+        phasors_VC(r+1,m) = phasors_VC(r,m) + (sqrt(2)/N_ciclo)*(V_faseC(N_ciclo+r)-V_faseC(r))*exp(-r*m*2*pi*1i/N_ciclo);
+    end
+    mod_phasors_IA = abs(phasors_IA(:,m));
+    mod_phasors_IB = abs(phasors_IB(:,m));
+    mod_phasors_IC = abs(phasors_IC(:,m));
+    mod_phasors_VA = abs(phasors_VA(:,m));
+    mod_phasors_VB = abs(phasors_VB(:,m));
+    mod_phasors_VC = abs(phasors_VC(:,m));
+    
+         % Plotagem e salvamento das componentes harmônicas
+            figuras = {'A', 'B', 'C'};
+            cores = {'b','g','r'};
+            for fase = 1:3
+                figure('visible', 'off');
+                plot(eval(['mod_phasors_I' figuras{fase}]), eval(['mod_phasors_V' figuras{fase}]),'Color', cores{fase});
+                title(sprintf('CBC - Barra %d: Relação VI - Fase %s - Caso %d - %d° harmônica', barra, figuras{fase}, caso, m));
+                xlabel('Corrente (A)');
+                ylabel('Tensão (kV)');
+                
+                % Caminho para salvar a imagem
+                curto_I = curto - 1;
+                caminho_imagem = sprintf('C:\\Users\\Usuario\\Desktop\\Facul\\TCC\\Imagens pro algoritmo\\%d fasores por segundo\\Dataset com dados perdidos em %d%%\\CBC\\%d\\Barra%d_Caso%d_Fase%s_%d.jpg', N_fpc, missing_prob*100, curto_I, barra, caso, figuras{fase}, m);
+                 % Salvar a imagem com resolução de 300 DPI     
+                 print(gcf, caminho_imagem, '-djpeg', '-r150');
+                close(gcf);
+               
+            end
+
+end
+        
+        
+        
+        
+    end
+    end
+    
+    %% FUNÇÃO DE RUÍDO GAUSSIANO CORRELACIONADO
+function [sinal_com_falhas1, sinal_com_falhas2] = adicionar_dados_faltantes(sinal_clean1, sinal_clean2, missing_prob)
+% ADICIONAR_DADOS_FALTANTES - Aplica dados faltantes (zeros) a dois sinais
+% O mesmo padrão de dados faltantes é aplicado a ambos os sinais
+%
+% Inputs:
+%   sinal_clean1 - Primeiro sinal limpo (ex: corrente)
+%   sinal_clean2 - Segundo sinal limpo (ex: tensão)  
+%   missing_prob - Probabilidade de dados faltantes (0.0 a 1.0)
+%
+% Outputs:
+%   sinal_com_falhas1 - Primeiro sinal com dados faltantes
+%   sinal_com_falhas2 - Segundo sinal com dados faltantes
+
+    
+    % Criar cópias dos sinais
+    sinal_com_falhas1 = sinal_clean1;
+    sinal_com_falhas2 = sinal_clean2;
+    
+    % Gerar UMA única máscara de dados faltantes para ambos os sinais
+    mascara_falhas = rand(size(sinal_clean1)) < missing_prob;
+    
+    % Aplicar dados faltantes (substituir por zeros)
+    sinal_com_falhas1(mascara_falhas) = 0;
+    sinal_com_falhas2(mascara_falhas) = 0;
+    
+end
+
+    
+        
